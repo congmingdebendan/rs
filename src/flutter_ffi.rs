@@ -37,6 +37,29 @@ lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
 }
 
+fn init_hard_settings() {
+    // HARD_SETTINGS：控制连接行为（服务器地址、连接模式等）
+    {
+        let mut s = hbb_common::config::HARD_SETTINGS.write().unwrap();
+        #[cfg(feature = "incoming_only")]
+        s.insert("conn-type".to_string(), "incoming".to_string());
+        const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
+        const BUILTIN_KEY: &str = env!("BUILTIN_KEY");
+        if !BUILTIN_SERVER.is_empty() {
+            s.insert("custom-rendezvous-server".to_string(), BUILTIN_SERVER.to_string());
+            s.insert("key".to_string(), BUILTIN_KEY.to_string());
+        }
+    }
+    // BUILTIN_SETTINGS：控制 UI 显隐（值需为 "Y"）
+    {
+        const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
+        if !BUILTIN_SERVER.is_empty() {
+            let mut b = hbb_common::config::BUILTIN_SETTINGS.write().unwrap();
+            b.insert("hide-server-settings".to_string(), "Y".to_string());
+        }
+    }
+}
+
 fn initialize(app_dir: &str, custom_client_config: &str) {
     flutter::async_tasks::start_flutter_async_runner();
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
@@ -50,6 +73,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
+    init_hard_settings();
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.

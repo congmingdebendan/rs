@@ -91,4 +91,11 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
     }
     println!("cargo:rerun-if-changed=build.rs");
+    // 编译时内置服务器配置（通过 CUSTOM_SERVER / CUSTOM_KEY 环境变量传入）
+    let server = std::env::var("CUSTOM_SERVER").unwrap_or_default();
+    let key = std::env::var("CUSTOM_KEY").unwrap_or_default();
+    println!("cargo:rustc-env=BUILTIN_SERVER={}", server);
+    println!("cargo:rustc-env=BUILTIN_KEY={}", key);
+    println!("cargo:rerun-if-env-changed=CUSTOM_SERVER");
+    println!("cargo:rerun-if-env-changed=CUSTOM_KEY");
 }

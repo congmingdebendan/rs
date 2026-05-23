@@ -150,6 +150,11 @@ def make_parser():
             action='store_true',
             help='Enable feature screencapturekit'
         )
+    parser.add_argument(
+        '--incoming-only',
+        action='store_true',
+        help='Build controlled-end only (被控端): shows ID/password only, hides server settings'
+    )
     return parser
 
 
@@ -284,6 +289,8 @@ def get_features(args):
     if osx:
         if args.screencapturekit:
             features.append('screencapturekit')
+    if args.incoming_only:
+        features.append('incoming_only')
     print("features:", features)
     return features
 

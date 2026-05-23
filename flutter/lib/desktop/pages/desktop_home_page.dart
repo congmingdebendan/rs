@@ -147,10 +147,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 Expanded(child: Container())
               ],
             ),
-            if (isOutgoingOnly)
+            if (isOutgoingOnly || isIncomingOnly)
               Positioned(
                 bottom: 6,
-                left: 12,
+                right: 12,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: InkWell(
