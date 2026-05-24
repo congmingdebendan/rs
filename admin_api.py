@@ -208,6 +208,7 @@ def devices(_token=Depends(verify_token)):
         result.append({
             "id": pid,
             "created_at": d.get("created_at"),
+            "platform": d.get("platform"),
             "last_seen": s.get("last_seen"),
             "last_ip": s.get("last_ip"),
             "online": pid in online,

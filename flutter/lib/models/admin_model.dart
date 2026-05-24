@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,7 @@ class DeviceInfo {
   final String? createdAt;
   final String? lastSeen;
   final String? lastIp;
+  final String? platform;
   final bool online;
   final bool blocked;
 
@@ -16,6 +18,7 @@ class DeviceInfo {
     this.createdAt,
     this.lastSeen,
     this.lastIp,
+    this.platform,
     required this.online,
     required this.blocked,
   });
@@ -25,6 +28,7 @@ class DeviceInfo {
         createdAt: json['created_at'],
         lastSeen: json['last_seen'],
         lastIp: json['last_ip'],
+        platform: json['platform'],
         online: json['online'] == true,
         blocked: json['blocked'] == true,
       );
@@ -34,6 +38,7 @@ class DeviceInfo {
         createdAt: createdAt,
         lastSeen: lastSeen,
         lastIp: lastIp,
+        platform: platform,
         online: online,
         blocked: blocked ?? this.blocked,
       );
@@ -67,7 +72,7 @@ class SessionRecord {
 
   String get durationText {
     if (durationSeconds == null) return '-';
-    if (durationSeconds! < 60) return '${durationSeconds}秒';
+    if (durationSeconds! < 60) return '$durationSeconds秒';
     if (durationSeconds! < 3600) return '${durationSeconds! ~/ 60}分钟';
     return '${durationSeconds! ~/ 3600}小时${(durationSeconds! % 3600) ~/ 60}分钟';
   }
@@ -104,6 +109,27 @@ class AdminModel with ChangeNotifier {
   bool loading = false;
   String? error;
 
+  // 本地元数据：备注和分组，存储在 app 配置项中（JSON 格式）
+  Map<String, String> notes = {};
+  Map<String, String> groups = {};
+
+  bool autoRefresh = false;
+  Timer? _autoRefreshTimer;
+  bool _metaLoaded = false;
+
+  // 所有已存在的分组名（去重排序）
+  List<String> get allGroups {
+    final s = groups.values.where((v) => v.isNotEmpty).toSet().toList();
+    s.sort();
+    return s;
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
   String get baseUrl {
     var url = bind.mainGetOptionSync(key: 'admin-url');
     while (url.endsWith('/')) {
@@ -111,6 +137,7 @@ class AdminModel with ChangeNotifier {
     }
     return url;
   }
+
   String get token => bind.mainGetOptionSync(key: 'admin-password');
 
   Map<String, String> get _headers => {
@@ -120,7 +147,59 @@ class AdminModel with ChangeNotifier {
 
   bool get isConfigured => baseUrl.isNotEmpty && token.isNotEmpty;
 
+  void _loadLocalMeta() {
+    final notesJson = bind.mainGetOptionSync(key: 'admin-device-notes');
+    if (notesJson.isNotEmpty) {
+      try {
+        notes = Map<String, String>.from(jsonDecode(notesJson));
+      } catch (_) {}
+    }
+    final groupsJson = bind.mainGetOptionSync(key: 'admin-device-groups');
+    if (groupsJson.isNotEmpty) {
+      try {
+        groups = Map<String, String>.from(jsonDecode(groupsJson));
+      } catch (_) {}
+    }
+  }
+
+  void saveNote(String id, String note) {
+    if (note.isEmpty) {
+      notes.remove(id);
+    } else {
+      notes[id] = note;
+    }
+    bind.mainSetOption(key: 'admin-device-notes', value: jsonEncode(notes));
+    notifyListeners();
+  }
+
+  void saveGroup(String id, String group) {
+    if (group.isEmpty) {
+      groups.remove(id);
+    } else {
+      groups[id] = group;
+    }
+    bind.mainSetOption(key: 'admin-device-groups', value: jsonEncode(groups));
+    notifyListeners();
+  }
+
+  void setAutoRefresh(bool enabled) {
+    autoRefresh = enabled;
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+    if (enabled) {
+      _autoRefreshTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => refresh(),
+      );
+    }
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
+    if (!_metaLoaded) {
+      _loadLocalMeta();
+      _metaLoaded = true;
+    }
     if (!isConfigured) {
       error = '请先在网络设置中配置管理后台地址和密码';
       notifyListeners();
