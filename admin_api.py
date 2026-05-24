@@ -14,8 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 DB_PATH = os.environ.get("DB_PATH", "/opt/rustdesk/db_v2.sqlite3")
-BLACKLIST_PATH = os.environ.get("BLACKLIST_PATH", "/opt/rustdesk/blacklist.txt")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+# status = -1 表示禁用，hbbs 注册时会拒绝该设备
 ONLINE_MINUTES = 10
 
 app = FastAPI(title="RustDesk Admin API")
@@ -43,16 +43,10 @@ def get_db():
     return conn
 
 
-def read_blocklist() -> list:
-    if not os.path.exists(BLACKLIST_PATH):
-        return []
-    with open(BLACKLIST_PATH) as f:
-        return [ln.strip() for ln in f if ln.strip()]
-
-
-def write_blocklist(ids: list):
-    with open(BLACKLIST_PATH, "w") as f:
-        f.write("\n".join(ids) + ("\n" if ids else ""))
+def get_db_rw():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def run_journal(unit: str, since: str = None, lines: int = None) -> str:
@@ -189,7 +183,6 @@ def stats(_token=Depends(verify_token)):
 
 @app.get("/api/devices")
 def devices(_token=Depends(verify_token)):
-    blocked = read_blocklist()
     online = parse_online()
     seen = parse_seen()
     try:
@@ -212,7 +205,7 @@ def devices(_token=Depends(verify_token)):
             "last_seen": s.get("last_seen"),
             "last_ip": s.get("last_ip"),
             "online": pid in online,
-            "blocked": pid in blocked,
+            "blocked": d.get("status") == -1,
         })
     return {"devices": result}
 
@@ -224,24 +217,32 @@ def sessions(_token=Depends(verify_token)):
 
 @app.get("/api/blocklist")
 def blocklist(_token=Depends(verify_token)):
-    return {"blocklist": read_blocklist()}
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id FROM peers WHERE status = -1"
+        ).fetchall()
+        conn.close()
+        return {"blocklist": [r["id"] for r in rows]}
+    except Exception as e:
+        return {"blocklist": [], "error": str(e)}
 
 
 @app.post("/api/blocklist/{device_id}")
 def block(device_id: str, _token=Depends(verify_token)):
-    lst = read_blocklist()
-    if device_id not in lst:
-        lst.append(device_id)
-        write_blocklist(lst)
+    conn = get_db_rw()
+    conn.execute("UPDATE peers SET status = -1 WHERE id = ?", (device_id,))
+    conn.commit()
+    conn.close()
     return {"ok": True}
 
 
 @app.delete("/api/blocklist/{device_id}")
 def unblock(device_id: str, _token=Depends(verify_token)):
-    lst = read_blocklist()
-    if device_id in lst:
-        lst.remove(device_id)
-        write_blocklist(lst)
+    conn = get_db_rw()
+    conn.execute("UPDATE peers SET status = NULL WHERE id = ?", (device_id,))
+    conn.commit()
+    conn.close()
     return {"ok": True}
 
 
