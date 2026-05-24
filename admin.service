@@ -1,0 +1,14 @@
+[Unit]
+Description=RustDesk Admin API
+After=network.target rustdesksignal.service
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/rustdesk/admin.env
+ExecStart=/usr/bin/python3 /opt/rustdesk/admin_api.py
+WorkingDirectory=/opt/rustdesk/
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -26,6 +26,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import 'admin_page.dart';
 
 const double _kTabWidth = 200;
 const double _kTabHeight = 42;
@@ -58,6 +59,7 @@ enum SettingsTabKey {
   plugin,
   account,
   printer,
+  admin,
   about,
 }
 
@@ -80,6 +82,7 @@ class DesktopSettingPage extends StatefulWidget {
     if (isWindows &&
         bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
       SettingsTabKey.printer,
+    if (!isWeb && !bind.isIncomingOnly()) SettingsTabKey.admin,
     SettingsTabKey.about,
   ];
 
@@ -208,6 +211,10 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           settingTabs
               .add(_TabInfo(tab, 'Printer', Icons.print_outlined, Icons.print));
           break;
+        case SettingsTabKey.admin:
+          settingTabs.add(_TabInfo(tab, '管理后台',
+              Icons.admin_panel_settings_outlined, Icons.admin_panel_settings));
+          break;
         case SettingsTabKey.about:
           settingTabs
               .add(_TabInfo(tab, 'About', Icons.info_outline, Icons.info));
@@ -241,6 +248,9 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           break;
         case SettingsTabKey.printer:
           children.add(const _Printer());
+          break;
+        case SettingsTabKey.admin:
+          children.add(const AdminPage());
           break;
         case SettingsTabKey.about:
           children.add(const _About());
@@ -1725,10 +1735,94 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
                     }
                   },
                 ),
+              if (!bind.isIncomingOnly()) ...[
+                divider,
+                _AdminConfigSection(locked: locked, setState: setState),
+              ],
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+// 管理后台配置区块（嵌入 Network Tab 底部）
+class _AdminConfigSection extends StatefulWidget {
+  final bool locked;
+  final void Function(VoidCallback) setState;
+
+  const _AdminConfigSection(
+      {required this.locked, required this.setState});
+
+  @override
+  State<_AdminConfigSection> createState() => _AdminConfigSectionState();
+}
+
+class _AdminConfigSectionState extends State<_AdminConfigSection> {
+  late final TextEditingController _urlCtrl;
+  late final TextEditingController _pwdCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlCtrl = TextEditingController(
+        text: bind.mainGetOptionSync(key: 'admin-url'));
+    _pwdCtrl = TextEditingController(
+        text: bind.mainGetOptionSync(key: 'admin-password'));
+  }
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _pwdCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(translate('管理后台'),
+              style: const TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          _LabeledTextField(
+            context,
+            '后台地址',
+            _urlCtrl,
+            '',
+            !widget.locked,
+            false,
+          ),
+          _LabeledTextField(
+            context,
+            '管理员密码',
+            _pwdCtrl,
+            '',
+            !widget.locked,
+            true,
+          ),
+          const SizedBox(height: 4),
+          ElevatedButton(
+            onPressed: widget.locked
+                ? null
+                : () async {
+                    await bind.mainSetOption(
+                        key: 'admin-url', value: _urlCtrl.text.trim());
+                    await bind.mainSetOption(
+                        key: 'admin-password',
+                        value: _pwdCtrl.text);
+                    setState(() {});
+                    widget.setState(() {});
+                  },
+            child: Text(translate('保存')),
+          ),
+        ],
+      ),
     );
   }
 }
