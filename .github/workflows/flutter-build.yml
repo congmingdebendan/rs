@@ -798,7 +798,9 @@ jobs:
       - build-for-windows-flutter
       - build-for-windows-sciter
     runs-on: ubuntu-latest
-    if: ${{ inputs.upload-artifact }}
+    # 已禁用：控制端/被控端拆分后 artifact 名字带 -controller/-controlled 后缀，
+    # 但此处下载的还是老名字（rustdesk-unsigned-macos-x86_64），自建场景用不到合并发布，直接关闭。
+    if: false
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@master
