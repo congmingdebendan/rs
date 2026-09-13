@@ -16,6 +16,8 @@ on:
       - "res/**"
       - "appimage/**"
       - "flatpak/**"
+      # 服务端运维脚本，与客户端构建无关，改动不触发 CI
+      - "deploy/**"
 
 jobs:
   run-ci:
