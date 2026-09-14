@@ -14,8 +14,10 @@ echo "【服务状态】"
 for svc in rustdesksignal rustdeskrelay; do
     state=$(systemctl is-active "$svc" 2>/dev/null)
     if [ "$state" = "active" ]; then
-        # 取服务启动时间，便于判断是否发生过意外重启
-        since=$(systemctl show "$svc" -p ActiveEnterTimestamp --value 2>/dev/null)
+        # 取服务启动时间，便于判断是否发生过意外重启。
+        # 注意：不能用 systemctl show --value，该参数需 systemd 230+，
+        # CentOS 7 自带 systemd 219 不支持，只能自己切掉等号前缀。
+        since=$(systemctl show "$svc" -p ActiveEnterTimestamp 2>/dev/null | cut -d= -f2-)
         echo "  ✅ $svc 运行中（启动于 ${since:-未知}）"
     else
         echo "  ❌ $svc 状态异常：${state:-未知}"
@@ -52,28 +54,56 @@ for port in 21115 21116 21117 21118 21119; do
 done
 echo
 
-# ---------- 4. 最近注册的设备 ----------
-echo "【最近 10 分钟在线设备】"
-online=$(journalctl -u rustdesksignal --since "10 min ago" --no-pager -q 2>/dev/null \
+# ---------- 4. 最近活跃的设备 ----------
+# 重要：hbbs 的常规心跳不写日志，update_pk 只在设备首次注册或公网 IP
+# 变化时才打印。所以这里统计的是"最近 24 小时上报过注册信息的设备"，
+# 不等于"当前在线设备"。窗口取太短（如 10 分钟）几乎永远是空的。
+echo "【最近 24 小时上报注册的设备】"
+active=$(journalctl -u rustdesksignal --since "24 hours ago" --no-pager -q 2>/dev/null \
     | grep -oE 'update_pk [0-9]+' | awk '{print $2}' | sort -u)
-if [ -n "$online" ]; then
-    echo "$online" | sed 's/^/  • 设备 /'
-    echo "  合计：$(echo "$online" | wc -l) 台"
+if [ -n "$active" ]; then
+    echo "$active" | sed 's/^/  • 设备 /'
+    echo "  合计：$(echo "$active" | wc -l) 台"
 else
-    echo "  （无设备上报心跳）"
+    echo "  （24 小时内无设备上报，可能都未重启客户端或未换网络）"
 fi
+echo
+
+# ---------- 4.5 中继会话 ----------
+# 相比 update_pk，中继请求反映的是真实的连接活动，参考价值更高
+echo "【最近 24 小时中继会话】"
+relay_cnt=$(journalctl -u rustdeskrelay --since "24 hours ago" --no-pager -q 2>/dev/null \
+    | grep -c 'New relay request')
+paired_cnt=$(journalctl -u rustdeskrelay --since "24 hours ago" --no-pager -q 2>/dev/null \
+    | grep -c 'got paired')
+echo "  发起 ${relay_cnt:-0} 次，成功配对 ${paired_cnt:-0} 次"
 echo
 
 # ---------- 5. 设备总数 ----------
 echo "【设备总数】"
 DB=/opt/rustdesk/db_v2.sqlite3
-if command -v sqlite3 >/dev/null 2>&1 && [ -f "$DB" ]; then
-    total=$(sqlite3 "file:${DB}?mode=ro" "SELECT COUNT(*) FROM peers;" 2>/dev/null)
-    blocked=$(sqlite3 "file:${DB}?mode=ro" "SELECT COUNT(*) FROM peers WHERE status=-1;" 2>/dev/null)
-    echo "  已注册：${total:-查询失败} 台，已禁用：${blocked:-0} 台"
-else
-    # 服务器未安装 sqlite3 命令行工具时跳过，不作为错误
+if [ ! -f "$DB" ]; then
+    echo "  （未找到数据库 $DB）"
+elif ! command -v sqlite3 >/dev/null 2>&1; then
     echo "  （未安装 sqlite3 命令行工具，跳过）"
+else
+    # 先复制一份再查询，绝不对 hbbs 正在使用的数据库加任何锁。
+    # 库只有几十 KB，复制开销可忽略。
+    TMPDB=$(mktemp /tmp/rdstat.XXXXXX)
+    cp "$DB" "$TMPDB" 2>/dev/null
+    out=$(sqlite3 "$TMPDB" "SELECT COUNT(*) FROM peers;" 2>&1)
+    if echo "$out" | grep -qE '^[0-9]+$'; then
+        blocked=$(sqlite3 "$TMPDB" "SELECT COUNT(*) FROM peers WHERE status=-1;" 2>/dev/null)
+        echo "  已注册：${out} 台，已禁用：${blocked:-0} 台"
+    elif echo "$out" | grep -qi 'without'; then
+        # CentOS 7 自带 sqlite3 3.7.17，不认识 hbbs 建表用的 WITHOUT ROWID
+        # 语法（需 3.8.2+），连 schema 都解析不了。属环境限制，非故障。
+        echo "  （跳过：sqlite3 $(sqlite3 -version | awk '{print $1}') 过旧，"
+        echo "    不支持 WITHOUT ROWID 语法，需 3.8.2 以上版本）"
+    else
+        echo "  （查询失败：${out}）"
+    fi
+    rm -f "$TMPDB"
 fi
 echo
 
