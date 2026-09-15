@@ -22,5 +22,11 @@ on:
 jobs:
   run-ci:
     uses: ./.github/workflows/flutter-build.yml
+    # 必须显式继承 secrets：reusable workflow 默认拿不到调用者的 secrets，
+    # 缺这一行会导致 flutter-build.yml 里的 CUSTOM_SERVER / CUSTOM_KEY 为空，
+    # 构建出的客户端不含内置服务器地址与 key，只能连 RustDesk 官方服务器。
+    secrets: inherit
     with:
-      upload-artifact: false
+      # 手动触发时产出可下载的 artifact（用于验证包是否正确）；
+      # 日常 push 只做编译校验，不产出产物，省构建时间和存储。
+      upload-artifact: ${{ github.event_name == 'workflow_dispatch' }}
