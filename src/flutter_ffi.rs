@@ -38,25 +38,40 @@ lazy_static::lazy_static! {
 }
 
 fn init_hard_settings() {
-    // HARD_SETTINGS：控制连接行为（服务器地址、连接模式等）
+    const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
+    const BUILTIN_KEY: &str = env!("BUILTIN_KEY");
+
+    // HARD_SETTINGS：key 由 crate::get_key() 读取，conn-type 由
+    // config::is_incoming_only() 读取，这两处都在上游代码里，可直接生效。
     {
         let mut s = hbb_common::config::HARD_SETTINGS.write().unwrap();
         #[cfg(feature = "incoming_only")]
         s.insert("conn-type".to_string(), "incoming".to_string());
-        const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
-        const BUILTIN_KEY: &str = env!("BUILTIN_KEY");
         if !BUILTIN_SERVER.is_empty() {
-            s.insert("custom-rendezvous-server".to_string(), BUILTIN_SERVER.to_string());
             s.insert("key".to_string(), BUILTIN_KEY.to_string());
         }
     }
+
+    // 服务器地址必须写 OVERWRITE_SETTINGS，不能写 HARD_SETTINGS。
+    // 因为 Config::get_option() 的查找链是
+    //     OVERWRITE_SETTINGS → 配置文件 CONFIG2.options → DEFAULT_SETTINGS
+    // 完全不经过 HARD_SETTINGS；而 get_rendezvous_server(s) 取值最终落到
+    // get_option("custom-rendezvous-server")。写错地方会导致编译期内置的
+    // 服务器地址被忽略，客户端回落到 RustDesk 官方服务器。
+    // OVERWRITE_SETTINGS 优先级最高，会压过用户本地配置文件，用户无法覆盖。
+    if !BUILTIN_SERVER.is_empty() {
+        hbb_common::config::OVERWRITE_SETTINGS.write().unwrap().insert(
+            "custom-rendezvous-server".to_string(),
+            BUILTIN_SERVER.to_string(),
+        );
+    }
+
     // BUILTIN_SETTINGS：控制 UI 显隐（值需为 "Y"）
-    {
-        const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
-        if !BUILTIN_SERVER.is_empty() {
-            let mut b = hbb_common::config::BUILTIN_SETTINGS.write().unwrap();
-            b.insert("hide-server-settings".to_string(), "Y".to_string());
-        }
+    if !BUILTIN_SERVER.is_empty() {
+        hbb_common::config::BUILTIN_SETTINGS
+            .write()
+            .unwrap()
+            .insert("hide-server-settings".to_string(), "Y".to_string());
     }
 }
 
