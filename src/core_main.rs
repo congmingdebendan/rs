@@ -33,6 +33,10 @@ pub fn core_main() -> Option<Vec<String>> {
         return None;
     }
     crate::load_custom_client();
+    // 必须紧跟在 load_custom_client 之后、任何服务启动之前：
+    // 内置配置优先级高于 custom.txt，且 rendezvous mediator 随 server 启动
+    // 就会读取服务器地址，设置晚了不生效。
+    crate::common::init_builtin_settings();
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process

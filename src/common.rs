@@ -2087,6 +2087,51 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
     ThrottledInterval::new(i)
 }
 
+/// 注入编译期内置的服务器配置（由 build.rs 从 CUSTOM_SERVER / CUSTOM_KEY 写入）。
+///
+/// ⚠️ 必须在 core_main() 早期调用。server 启动时 rendezvous mediator 会立刻
+/// 读取服务器地址（日志 `start rendezvous mediator of xxx`），晚于该时点再设置
+/// 完全不生效，客户端会回落到 RustDesk 官方服务器。
+/// 之前放在 flutter_ffi::initialize() 里就踩了这个坑——那里要等 Flutter 引擎
+/// 起来后由 Dart 回调，服务器早就选完了。
+pub fn init_builtin_settings() {
+    const BUILTIN_SERVER: &str = env!("BUILTIN_SERVER");
+    const BUILTIN_KEY: &str = env!("BUILTIN_KEY");
+
+    // 连接模式：被控端专用构建，由 config::is_incoming_only() 读取
+    #[cfg(feature = "incoming_only")]
+    config::HARD_SETTINGS
+        .write()
+        .unwrap()
+        .insert("conn-type".to_string(), "incoming".to_string());
+
+    if BUILTIN_SERVER.is_empty() {
+        return;
+    }
+
+    // key 由 crate::get_key() 读取，它查的就是 HARD_SETTINGS
+    config::HARD_SETTINGS
+        .write()
+        .unwrap()
+        .insert("key".to_string(), BUILTIN_KEY.to_string());
+
+    // 服务器地址必须写 OVERWRITE_SETTINGS，不能写 HARD_SETTINGS。
+    // Config::get_option() 的查找链是
+    //     OVERWRITE_SETTINGS -> 配置文件 CONFIG2.options -> DEFAULT_SETTINGS
+    // 完全不经过 HARD_SETTINGS，而 get_rendezvous_server(s) 最终落到 get_option。
+    // OVERWRITE_SETTINGS 优先级最高，会压过用户本地配置文件，用户无法覆盖。
+    config::OVERWRITE_SETTINGS.write().unwrap().insert(
+        "custom-rendezvous-server".to_string(),
+        BUILTIN_SERVER.to_string(),
+    );
+
+    // 隐藏 UI 上的服务器设置入口
+    config::BUILTIN_SETTINGS
+        .write()
+        .unwrap()
+        .insert("hide-server-settings".to_string(), "Y".to_string());
+}
+
 pub fn load_custom_client() {
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
